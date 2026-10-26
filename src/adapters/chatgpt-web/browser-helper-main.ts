@@ -1,7 +1,7 @@
 import { validateSkillFiles } from "./skill-attachments";
 import { createInterface } from "node:readline";
 import { stdin, stderr, stdout } from "node:process";
-import type { CodexProviderConfig } from "../../types";
+import type { CodexProviderConfig, FinalAnswerDelivery } from "../../types";
 import { ChatGptBrowserWorker, closeChatGptBrowserWorkers, type BrowserTurn } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import type { ChatGptWebCapabilities } from "./model";
@@ -20,6 +20,7 @@ interface RunMessage {
     browserDiagnosticsPath?: string;
     turnTimeoutMs: number;
     autoApproveToolCalls: boolean;
+    finalAnswerDelivery?: FinalAnswerDelivery;
   };
   turn: {
     traceId: string;
@@ -195,6 +196,7 @@ async function run(message: RunMessage): Promise<void> {
       browserDiagnosticsPath: message.config.browserDiagnosticsPath,
       turnTimeoutMs: message.config.turnTimeoutMs,
       autoApproveToolCalls: message.config.autoApproveToolCalls,
+      finalAnswerDelivery: message.config.finalAnswerDelivery,
     },
   };
   const abortController = new AbortController();
@@ -534,4 +536,4 @@ process.once("SIGTERM", () => {
 });
 
 // Advertise the optional frames this helper understands so the daemon can negotiate them explicitly.
-writeProtocol({ type: "ready", features: ["progress", "tool-boundary-ack", "completion-fence", "multipart-stage-ack", "skill-attachments"] });
+writeProtocol({ type: "ready", features: ["final-answer-delivery", "progress", "tool-boundary-ack", "completion-fence", "multipart-stage-ack", "skill-attachments"] });

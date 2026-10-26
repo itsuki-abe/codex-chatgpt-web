@@ -126,6 +126,23 @@ Settings can also cancel a retained browser turn or remove the Codex integration
 Task conversations always use ordinary chats and remain in ChatGPT history. ChatGPT memory and
 custom instructions may apply. **New browser chat for each turn** separately controls conversation
 reuse. The retired saved-chat preference is discarded when loading an older configuration.
+To hold final-answer text until generation completes, add `"finalAnswerDelivery": "complete"`
+to your existing `~/.codex-chatgpt-web/config.json` (or the configuration under
+`CODEX_CHATGPT_WEB_HOME`):
+
+```json
+{
+  "finalAnswerDelivery": "complete"
+}
+```
+
+This is a configuration fragment, not a replacement for the file. Restart the bridge after editing;
+restart or update the launcher too if it reports an unsupported helper. The default, `"stream"`,
+keeps incremental final-answer delivery. Reasoning, commentary, tool activity and heartbeats remain
+live in both modes. Compaction summaries always use complete delivery. Complete delivery tolerates
+draft rewrites before completion, but does not repair incomplete final DOM snapshots or incorrect
+generation-completion detection; extraction failures still fail closed.
+
 Set `CODEX_CHATGPT_WEB_BROWSER_DIAGNOSTICS=1` only when every browser checkpoint needs a screenshot.
 
 New installs use **Compatibility V1** for cross-backend subagents. **Native** preserves Codex's own

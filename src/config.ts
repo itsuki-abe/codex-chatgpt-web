@@ -7,8 +7,14 @@ import {
   CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
   CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL,
 } from "./chatgpt-web-models";
-import type { CodexProviderConfig } from "./types";
+import type { CodexProviderConfig, FinalAnswerDelivery } from "./types";
 import { VERSION } from "./version";
+
+export function resolveFinalAnswerDelivery(value: unknown): FinalAnswerDelivery {
+  if (value === undefined) return "stream";
+  if (value === "stream" || value === "complete") return value;
+  throw new Error('Invalid finalAnswerDelivery; expected "stream" or "complete"');
+}
 
 export type RuntimeMode = "browser-only" | "full";
 export type BrowserHostMode = "managed-chrome" | "launcher";
@@ -126,6 +132,7 @@ export interface AppConfig {
   /** Optional adapter-silence budget for the Responses watchdog. */
   stallTimeoutSec?: number;
   autoApproveToolCalls: boolean;
+  finalAnswerDelivery: FinalAnswerDelivery;
   controlToken: string;
   runtimeCommand: string[];
   acknowledgedUnofficialAt?: string;
@@ -256,6 +263,7 @@ export function defaultConfig(mode: RuntimeMode = "browser-only"): AppConfig {
     experimentalFreshConversationPerTurn: false,
     zeroRiskProEnabled: false,
     autoApproveToolCalls: false,
+    finalAnswerDelivery: "stream",
     controlToken: randomBytes(32).toString("base64url"),
     runtimeCommand: currentRuntimeCommand(),
   };
@@ -579,6 +587,7 @@ function parseConfig(value: unknown, path: string): AppConfig {
     automaticAppName,
     manualAppName,
     browserInteractionMode,
+    finalAnswerDelivery: resolveFinalAnswerDelivery(parsed.finalAnswerDelivery),
     subagentProtocol,
     solAvailable,
     proAvailable,
@@ -628,6 +637,7 @@ export function providerConfig(config: AppConfig): CodexProviderConfig {
     chatgptWeb: {
       appName: manual ? config.manualAppName : config.automaticAppName,
       browserInteractionMode: config.browserInteractionMode,
+      finalAnswerDelivery: config.finalAnswerDelivery,
       browserHost: config.browserHost,
       browserHostDescriptorPath: config.browserHostDescriptorPath,
       storageStatePath: config.storageStatePath,

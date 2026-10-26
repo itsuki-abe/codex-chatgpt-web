@@ -34,7 +34,7 @@ test.each([false, true])("obsolete chat-mode preferences do not reach the helper
   })).toEqual({ ok: true, appName: "Codex Native2" });
 });
 
-test("daemon streams browser lifecycle through the real helper process", async () => {
+test.each(["stream", "complete"] as const)("daemon preserves final-answer delivery through the real helper process (%s)", async finalAnswerDelivery => {
   const root = mkdtempSync(join(tmpdir(), "codex-launcher-helper-client-"));
   roots.push(root);
   const helper = join(root, "helper.ts");
@@ -43,6 +43,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
     // Substitute only the browser. Both sides of the production IPC protocol run unchanged.
     ChatGptBrowserWorker.prototype.run = async function(turn) {
       if (Object.hasOwn(this.config, "useSavedChats")) throw new Error("Retired setting reached helper worker");
+      if (this.config.finalAnswerDelivery !== ${JSON.stringify(finalAnswerDelivery)}) throw new Error("Final-answer delivery lost in helper IPC");
       if (turn.modelFamily !== "5.6") throw new Error("Pinned model family lost in helper IPC");
       await turn.onPreparedSelected(false);
       const prepared = await turn.prepare();
@@ -102,7 +103,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
     chromeExecutablePath: join(root, "unused-chrome"),
     turnTimeoutMs: 60_000,
     headed: true,
-    autoApproveToolCalls: false,
+    autoApproveToolCalls: false, finalAnswerDelivery,
   };
   const reasoning: Array<{ text: string; continuation: boolean }> = [];
   const deltas: string[] = [];
@@ -165,7 +166,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
   } finally {
     await client.close();
   }
-});
+}, 20_000);
 
 test("accepted compaction retires through the helper as completed without hiding cancellations or errors", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-helper-compaction-end-"));
@@ -217,7 +218,7 @@ test("accepted compaction retires through the helper as completed without hiding
     appName: "Codex Native2", browserHost: "launcher", browserHostDescriptorPath: descriptorPath,
     browserHelperScriptPath: helper, browserDiagnosticsPath: join(root, "diagnostics"),
     storageStatePath: join(root, "unused-state.json"), chromeExecutablePath: join(root, "unused-chrome"),
-    turnTimeoutMs: 60_000, headed: true, autoApproveToolCalls: false,
+    turnTimeoutMs: 60_000, headed: true, autoApproveToolCalls: false, finalAnswerDelivery: "stream",
   });
   const logs: string[] = [];
   const logger = spyOn(console, "info").mockImplementation((...args) => { logs.push(args.join(" ")); });
@@ -269,7 +270,7 @@ test("launcher helper protocol preserves multipart context, broker identity and 
     chromeExecutablePath: "/durable/unused-chrome",
     turnTimeoutMs: 60_000,
     headed: true,
-    autoApproveToolCalls: false,
+    autoApproveToolCalls: false, finalAnswerDelivery: "stream",
   });
   const internal = client as unknown as {
     pending: Map<string, { resolve(value: string): void }>;
@@ -349,7 +350,7 @@ test("an abort dispatched during run submission cannot overtake the run frame", 
     chromeExecutablePath: "/durable/unused-chrome",
     turnTimeoutMs: 60_000,
     headed: true,
-    autoApproveToolCalls: false,
+    autoApproveToolCalls: false, finalAnswerDelivery: "stream",
   });
   const internal = client as unknown as {
     ensureChild(): Promise<void>;
@@ -395,7 +396,7 @@ test("structured helper errors preserve the ChatGPT adapter failure contract", a
     chromeExecutablePath: "/durable/unused-chrome",
     turnTimeoutMs: 60_000,
     headed: true,
-    autoApproveToolCalls: false,
+    autoApproveToolCalls: false, finalAnswerDelivery: "stream",
   });
   const internal = client as unknown as {
     child?: unknown;
@@ -446,7 +447,7 @@ test("structured helper errors preserve the ChatGPT adapter failure contract", a
 test("an older helper cannot silently drop selected skill files and releases the prepared turn", async () => {
   const client = new LauncherBrowserHelperClient({
     appName: "Codex Native2", browserHost: "launcher", browserHostDescriptorPath: "/durable/launcher.json",
-    storageStatePath: "/durable/unused.json", chromeExecutablePath: "/durable/chrome", headed: true, autoApproveToolCalls: false,
+    storageStatePath: "/durable/unused.json", chromeExecutablePath: "/durable/chrome", headed: true, autoApproveToolCalls: false, finalAnswerDelivery: "stream",
   });
   const internal = client as unknown as {
     child: unknown;
@@ -481,4 +482,22 @@ test("an older helper cannot silently drop selected skill files and releases the
   })).rejects.toThrow("does not support skill attachments");
   expect(sent).toEqual(["run", "abort"]);
   expect(released).toBe(true);
+});
+
+test("complete delivery rejects helpers that cannot honor it before dispatch", async () => {
+  const client = new LauncherBrowserHelperClient({
+    appName: "Codex Native2", browserHost: "launcher", browserHostDescriptorPath: "/durable/launcher.json",
+    storageStatePath: "/durable/state.json", chromeExecutablePath: "/durable/chrome",
+    headed: true, autoApproveToolCalls: false, finalAnswerDelivery: "complete",
+  });
+  let prepared = false;
+  Object.assign(client, { ensureChild: async () => {} });
+  await expect(client.run({
+    traceId: "old-helper", modelId: "gpt-5.6-sol",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+    prepare: async () => { prepared = true; return { text: "Answer", images: [], release() {} }; },
+    onTextDelta() {},
+  })).rejects.toThrow("does not support complete final-answer delivery");
+  expect(prepared).toBeFalse();
+  await client.close();
 });

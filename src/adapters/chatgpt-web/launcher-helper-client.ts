@@ -212,6 +212,11 @@ export class LauncherBrowserHelperClient {
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
     await this.ensureChild();
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
+    if (this.config.finalAnswerDelivery === "complete" && !this.helperFeatures.has("final-answer-delivery")) {
+      throw new Error(
+        "Launcher browser helper does not support complete final-answer delivery; update or restart the launcher",
+      );
+    }
     if (turn.onMultipartStageAcknowledged && !this.helperFeatures.has("multipart-stage-ack")) {
       throw new Error(
         "Launcher browser helper does not support multipart acknowledgement forwarding; update or restart the launcher",
@@ -277,6 +282,7 @@ export class LauncherBrowserHelperClient {
             browserDiagnosticsPath: this.config.browserDiagnosticsPath,
             turnTimeoutMs: this.config.turnTimeoutMs,
             autoApproveToolCalls: this.config.autoApproveToolCalls,
+            finalAnswerDelivery: this.config.finalAnswerDelivery,
           },
           turn: {
             traceId: turn.traceId,

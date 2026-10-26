@@ -4524,3 +4524,18 @@ test("a stage that spans a system sleep is not charged for the slept time", asyn
   await stage;
   expect(outcome).toEqual(["ChatGPT browser stage timed out: probe"]);
 }, 10_000);
+
+
+test("browser final-answer delivery normalizes defaults and validates external provider values", () => {
+  const provider: CodexProviderConfig = { adapter: "chatgpt-web", baseUrl: "https://chatgpt.com" };
+  expect(resolveBrowserConfig(provider).finalAnswerDelivery).toBe("stream");
+  for (const finalAnswerDelivery of ["stream", "complete"] as const) {
+    expect(resolveBrowserConfig({ ...provider, chatgptWeb: { finalAnswerDelivery } }).finalAnswerDelivery)
+      .toBe(finalAnswerDelivery);
+  }
+  for (const value of [null, true, "buffered"]) {
+    expect(() => resolveBrowserConfig(JSON.parse(JSON.stringify({
+      ...provider, chatgptWeb: { finalAnswerDelivery: value },
+    })))).toThrow("finalAnswerDelivery");
+  }
+});

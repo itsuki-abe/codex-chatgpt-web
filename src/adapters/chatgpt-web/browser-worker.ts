@@ -11,6 +11,7 @@ import { detectChatGptLimitsPlan, readChatGptUsageAccount, readChatGptUsageModel
 import { chromium, type Browser, type BrowserContext, type JSHandle, type Locator, type Page, type Request, type Response } from "playwright-core";
 import {
   atomicWriteFile,
+  resolveFinalAnswerDelivery,
   CHATGPT_CONNECTOR_NAME,
   defaultChromeExecutable,
   DEV_CHATGPT_CONNECTOR_NAME,
@@ -22,7 +23,7 @@ import {
 } from "../../config";
 import { estimateTokens } from "../../lib/token-estimate";
 import { CHATGPT_STOPPED_THINKING_LABELS } from "./ui-labels";
-import type { CodexProviderConfig } from "../../types";
+import type { CodexProviderConfig, FinalAnswerDelivery } from "../../types";
 import { parseDataUrl } from "../image";
 import {
   ChatGptMarkdownBuffer,
@@ -1112,6 +1113,7 @@ export interface ResolvedBrowserConfig {
   turnTimeoutMs?: number;
   headed: boolean;
   autoApproveToolCalls: boolean;
+  finalAnswerDelivery: FinalAnswerDelivery;
 }
 
 export function chatGptTurnIsComplete(state: {
@@ -1892,6 +1894,7 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
     ...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
     headed: configured.headed !== false,
     autoApproveToolCalls: configured.autoApproveToolCalls === true,
+    finalAnswerDelivery: resolveFinalAnswerDelivery(configured.finalAnswerDelivery),
   };
 }
 
@@ -5376,7 +5379,7 @@ export class ChatGptBrowserWorker {
       let capturedResponse = false;
       const sentAt = Date.now();
       const visibleTrace = new ChatGptVisibleTraceTracker();
-      const markdownBuffer = new ChatGptMarkdownBuffer(undefined, undefined, turn.compaction ? "complete" : "stream");
+      const markdownBuffer = new ChatGptMarkdownBuffer(undefined, undefined, turn.compaction ? "complete" : this.config.finalAnswerDelivery);
       const checkpointStream = turn.captureLunaCheckpoint
         ? new ChatGptLunaCheckpointStream()
         : undefined;

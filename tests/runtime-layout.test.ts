@@ -404,3 +404,24 @@ test("stored names survive config loading without an additional naming preferenc
   writeFileSync(join(root, "config.json"), JSON.stringify({ ...config, automaticAppName: "Codex Zero Risk", manualAppName: "Codex Manual", appName: "Codex Manual" }));
   expect(loadConfigForSetup().automaticAppName).toBe("Codex Zero Risk");
 });
+
+test("final-answer delivery defaults for old configurations and persists the selected mode", () => {
+  const root = join(tmpdir(), `codex-answer-delivery-${process.pid}-${Date.now()}`);
+  roots.push(root);
+  process.env.CODEX_CHATGPT_WEB_HOME = root;
+  mkdirSync(root, { recursive: true });
+  expect(defaultConfig().finalAnswerDelivery).toBe("stream");
+  const { finalAnswerDelivery: omitted, ...legacy } = defaultConfig();
+  for (const value of [undefined, "stream", "complete"] as const) {
+    writeFileSync(join(root, "config.json"), JSON.stringify({ ...legacy, finalAnswerDelivery: value }));
+    const config = loadConfig();
+    expect(config.finalAnswerDelivery).toBe(value ?? "stream");
+    expect(providerConfig(config).chatgptWeb?.finalAnswerDelivery).toBe(value ?? "stream");
+    saveConfig(config);
+    expect(loadConfig().finalAnswerDelivery).toBe(value ?? "stream");
+  }
+  for (const value of [null, true, "buffered", ""]) {
+    writeFileSync(join(root, "config.json"), JSON.stringify({ ...legacy, finalAnswerDelivery: value }));
+    expect(() => loadConfig()).toThrow("finalAnswerDelivery");
+  }
+});

@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { chromium, type Locator, type Page } from "playwright-core";
-import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { chatGptHtmlToMarkdown, ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("CodeMirror language invalidates the response cache and incomplete code is not delivered", async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
@@ -349,4 +351,71 @@ test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("binds captured Activity befo
       expect(await page.locator('input[type="file"]').evaluate(input => (input as HTMLInputElement).files?.[0]?.name)).toBe("codex-input-image-1.png");
     }
   } finally { await browser.close(); server.stop(true); }
+}, 15_000);
+
+test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("complete delivery buffers mutable drafts in the browser turn while commentary stays live", async () => {
+  const root = mkdtempSync(join(tmpdir(), "codex-complete-delivery-"));
+  const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(readFileSync(new URL("./fixtures/chatgpt-power-activity.html", import.meta.url), "utf8"));
+    await page.locator("#turn").evaluate(turn => {
+      turn.insertAdjacentHTML("beforeend", `<div data-content-search-unit-key="answer:assistant">
+        <h4 data-conversation-role="assistant"></h4>
+        <div data-markdown-text-style="assistant-message" id="answer"><p>Draft answer.</p><p>Draft tail.</p></div>
+      </div><button data-testid="copy-turn-action-button" id="copy" hidden></button>`);
+      document.body.insertAdjacentHTML("beforeend", '<button aria-label="Stop generating" id="stop"></button>');
+    });
+    const worker = ChatGptBrowserWorker.forProvider({
+      adapter: "chatgpt-web", baseUrl: `browser://complete-delivery-${Date.now()}`,
+      chatgptWeb: { finalAnswerDelivery: "complete", browserDiagnosticsPath: root, turnTimeoutMs: 10_000 },
+    });
+    Object.assign(worker, {
+      prepareChatSurface: async () => {},
+      selectModelAndEffort: async () => ({ effort: "high", localTools: false }),
+      attachPromptWithCompactionRetry: async () => {},
+      attachFiles: async () => {},
+      captureSubmissionBaseline: async () => ({}),
+      sendAttachedPrompt: async () => "assistant_turn",
+      waitForNewAssistantTurn: async () => ({ identity: "group:assistant:activity", locator: page.locator("#turn") }),
+    });
+    const responseDomSnapshot = Reflect.get(worker, "responseDomSnapshot").bind(worker);
+    let observedDraft = false;
+    Reflect.set(worker, "responseDomSnapshot", async (...args: unknown[]) => {
+      const snapshot = await responseDomSnapshot(...args);
+      if (!observedDraft && snapshot.visibleText.includes("Draft answer.")) {
+        observedDraft = true;
+        await page.evaluate(() => {
+          setTimeout(() => {
+            document.querySelector("#answer")!.innerHTML = "<p>Revised final answer.</p><p>Final tail.</p>";
+            document.querySelector("#stop")!.remove();
+            document.querySelector("#copy")!.removeAttribute("hidden");
+          }, 1_750);
+        });
+      }
+      return snapshot;
+    });
+    const events: string[] = [];
+    let released = false;
+    const turn: BrowserTurn = {
+      traceId: "complete-delivery-fixture", modelId: "gpt-5.6-sol", reasoning: "high",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({ text: "Answer", images: [], release: () => { released = true; } }),
+      onTextDelta: text => events.push(`answer:${text}`),
+      onCommentary: text => { events.push(`commentary:${text}`); },
+      onHeartbeat: () => { events.push("heartbeat"); },
+    };
+    const result = await Reflect.get(worker, "runBrowserTurn").call(worker, turn, undefined, page);
+    expect(result).toBe("Revised final answer.\n\nFinal tail.");
+    expect(events.filter(event => event.startsWith("answer:"))).toEqual([`answer:${result}`]);
+    const commentaryIndex = events.findIndex(event => event.startsWith("commentary:"));
+    expect(commentaryIndex).toBeGreaterThanOrEqual(0);
+    expect(commentaryIndex).toBeLessThan(events.findIndex(event => event.startsWith("answer:")));
+    expect(events).toContain("heartbeat");
+    expect(released).toBeTrue();
+    expect(observedDraft).toBeTrue();
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 }, 15_000);

@@ -250,6 +250,8 @@ export interface CodexUsage {
   estimated?: boolean;
 }
 
+export type FinalAnswerDelivery = "stream" | "complete";
+
 /** The only provider configuration supported by this focused runtime. */
 export interface CodexProviderConfig {
   adapter: "chatgpt-web";
@@ -266,6 +268,8 @@ export interface CodexProviderConfig {
   chatgptWeb?: {
     /** ChatGPT custom connector attached to tool-capable chats. */
     appName?: string;
+    /** Deliver final-answer text incrementally or after generation completes. */
+    finalAnswerDelivery?: FinalAnswerDelivery;
     /** Whether ChatGPT DOM interaction is automatic or explicitly driven by the user. */
     browserInteractionMode?: "automatic" | "manual";
     /** Explicit browser owner. Launcher mode attaches to the embedded Electron ChatGPT surface. */
